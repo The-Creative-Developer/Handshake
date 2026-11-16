@@ -105,7 +105,9 @@ describe('ARP and ping on one LAN', () => {
     const fromA = ofKind(sim, 'frame-tx').filter((e) => e.device === 'a');
     expect(fromA.filter((e) => e.frame.etherType === 'arp')).toHaveLength(1);
     const seqs = fromA.flatMap((e) =>
-      e.frame.etherType === 'ipv4' && e.frame.payload.payload.type === 'echo-request' ? [e.frame.payload.payload.seq] : [],
+      e.frame.etherType === 'ipv4' && e.frame.payload.protocol === 'icmp' && e.frame.payload.payload.type === 'echo-request'
+        ? [e.frame.payload.payload.seq]
+        : [],
     );
     expect(seqs).toEqual([1, 2]);
   });

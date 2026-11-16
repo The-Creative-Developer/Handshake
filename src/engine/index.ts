@@ -1,6 +1,10 @@
 export * from './addr';
 export * from './arp';
 export * from './device';
+export * from './dns';
+export * from './dns-client';
+export * from './dns-resolver';
+export * from './dns-server';
 export * from './host';
 export * from './ipnode';
 export * from './link';
@@ -10,3 +14,4 @@ export * from './router';
 export * from './sim';
 export * from './switch';
 export * from './trace';
+export * from './udp';

@@ -78,13 +78,11 @@ th {
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 }
 
-.outcome.reply {
+.outcome.ok {
   color: var(--rx);
 }
 
-.outcome.timeout,
-.outcome.unreachable,
-.outcome.ttl-exceeded {
+.outcome.other {
   color: var(--state);
 }
 
@@ -145,12 +143,14 @@ tbody tr:last-child td {
 }
 
 .kind.frame-drop,
-.kind.ip-drop {
+.kind.ip-drop,
+.kind.dns-reject {
   color: var(--drop);
 }
 
 .kind.mac-learn,
-.kind.arp-cache {
+.kind.arp-cache,
+.kind.dns-cache {
   color: var(--state);
 }
 

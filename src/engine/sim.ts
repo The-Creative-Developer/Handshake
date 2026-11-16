@@ -34,12 +34,26 @@ export class Simulation {
   readonly devices = new Map<string, Device>();
   readonly links: Link[] = [];
 
+  private readonly seed: number;
   private readonly heap: Scheduled[] = [];
   private nextSeq = 0;
   private nextMacIndex = 1;
 
   constructor(options: { seed?: number } = {}) {
-    this.rng = new Rng(options.seed ?? 1);
+    this.seed = (options.seed ?? 1) >>> 0;
+    this.rng = new Rng(this.seed);
+  }
+
+  /**
+   * Returns an independent random stream named by `label`. Each device draws
+   * from its own, so one device using randomness never changes what another sees.
+   */
+  fork(label: string): Rng {
+    let hash = (0x811c9dc5 ^ this.seed) >>> 0;
+    for (let i = 0; i < label.length; i++) {
+      hash = Math.imul(hash ^ label.charCodeAt(i), 0x01000193) >>> 0;
+    }
+    return new Rng(hash);
   }
 
   /** Runs `fn` after `delayUs` microseconds of simulated time. */

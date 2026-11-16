@@ -26,7 +26,11 @@ describe('Routing between subnets', () => {
     sim.runUntilIdle();
 
     const requestHops = ofKind(sim, 'frame-tx').filter(
-      (e) => e.frame.etherType === 'ipv4' && e.frame.payload.payload.type === 'echo-request' && e.device !== 'sw1',
+      (e) =>
+        e.frame.etherType === 'ipv4' &&
+        e.frame.payload.protocol === 'icmp' &&
+        e.frame.payload.payload.type === 'echo-request' &&
+        e.device !== 'sw1',
     );
     expect(requestHops.map((e) => e.device)).toEqual(['a', 'r1', 'r2']);
     expect(requestHops.map((e) => [e.frame.src, e.frame.dst])).toEqual([

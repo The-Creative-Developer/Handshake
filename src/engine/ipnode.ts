@@ -14,9 +14,19 @@ import {
 import { ArpCache } from './arp';
 import { Device } from './device';
 import type { Nic } from './link';
-import type { ArpPacket, EthernetFrame, IcmpMessage, Ipv4Packet, UnreachableCode } from './packets';
+import type {
+  ArpPacket,
+  EthernetFrame,
+  IcmpMessage,
+  IcmpPacket,
+  IpBody,
+  Ipv4Packet,
+  UnreachableCode,
+} from './packets';
+import type { Rng } from './rng';
 import { SECOND, type Simulation, type Timer } from './sim';
 import type { IpDropReason } from './trace';
+import { UdpLayer } from './udp';
 
 /** An IP-configured network interface. */
 export interface Interface {
@@ -76,12 +86,15 @@ const ECHO_ID = 1;
 
 /**
  * The IP layer shared by hosts and routers: interface addresses, a routing
- * table, ARP resolution, ICMP, and (for routers) forwarding.
+ * table, ARP resolution, ICMP, UDP, and (for routers) forwarding.
  */
 export class IpNode extends Device {
   readonly interfaces: Interface[] = [];
   readonly routes: Route[] = [];
   readonly forwarding: boolean;
+  /** This node's own random stream, for port numbers and transaction ids. */
+  readonly rng: Rng;
+  readonly udp: UdpLayer;
 
   private readonly arpTtlUs: number;
   private readonly arpRetryUs: number;
@@ -100,6 +113,8 @@ export class IpNode extends Device {
     this.arpRetryUs = options.arpRetryUs ?? SECOND;
     this.arpMaxAttempts = options.arpMaxAttempts ?? 3;
     this.defaultTtl = options.defaultTtl ?? 64;
+    this.rng = sim.fork(`node:${id}`);
+    this.udp = new UdpLayer(this, this.rng);
   }
 
   /** Gives an interface an address such as "10.0.0.5/24" and adds the route to its subnet. */
@@ -149,19 +164,41 @@ export class IpNode extends Device {
    */
   ping(target: string | Ipv4, done: (result: PingResult) => void, options: PingOptions = {}): void {
     const dst = typeof target === 'string' ? ip(target) : target;
-    const route = this.lookupRoute(dst);
-    if (!route) {
-      const from = this.interfaces[0]?.address ?? 0;
-      this.sim.schedule(0, () => done({ status: 'unreachable', from, code: 'net' }));
-      return;
-    }
     const seq = this.nextEchoSeq++;
     const timer = this.sim.schedule(options.timeoutUs ?? 5 * SECOND, () => {
       this.pings.delete(seq);
       done({ status: 'timeout' });
     });
     this.pings.set(seq, { sentAt: this.sim.now, timer, done });
-    this.originate(route.iface.address, dst, { type: 'echo-request', id: ECHO_ID, seq }, options.ttl);
+    const sent = this.sendPacket(
+      dst,
+      { protocol: 'icmp', payload: { type: 'echo-request', id: ECHO_ID, seq } },
+      { ttl: options.ttl },
+    );
+    if (!sent) {
+      const from = this.interfaces[0]?.address ?? 0;
+      this.sim.schedule(0, () => this.finishPing(seq, { status: 'unreachable', from, code: 'net' }));
+    }
+  }
+
+  /**
+   * Sends a packet that starts at this node. The source defaults to the address
+   * of the interface it leaves by; `src` may name another address this node owns.
+   * Returns false, sending nothing, when there is no route to `dst`.
+   */
+  sendPacket(dst: Ipv4, body: IpBody, options: { src?: Ipv4; ttl?: number } = {}): boolean {
+    const header = { dst, ttl: options.ttl ?? this.defaultTtl };
+    if (this.ownsAddress(dst)) {
+      // Addressed to ourselves: loop it back without touching the wire.
+      const packet: Ipv4Packet = { src: options.src ?? dst, ...header, id: this.nextPacketId++, ...body };
+      this.sim.schedule(0, () => this.deliver(packet));
+      return true;
+    }
+    const route = this.lookupRoute(dst);
+    if (!route) return false;
+    const src = options.src !== undefined && this.ownsAddress(options.src) ? options.src : route.iface.address;
+    this.transmit(route, { src, ...header, id: this.nextPacketId++, ...body });
+    return true;
   }
 
   override onFrame(nic: Nic, frame: EthernetFrame): void {
@@ -280,22 +317,6 @@ export class IpNode extends Device {
     this.transmit(route, forwarded);
   }
 
-  /** Builds a packet that starts at this node and sends it on its way. */
-  private originate(src: Ipv4, dst: Ipv4, payload: IcmpMessage, ttl = this.defaultTtl): void {
-    const packet: Ipv4Packet = { src, dst, ttl, id: this.nextPacketId++, protocol: 'icmp', payload };
-    if (this.ownsAddress(dst)) {
-      // Addressed to ourselves: loop it back without touching the wire.
-      this.sim.schedule(0, () => this.deliver(packet));
-      return;
-    }
-    const route = this.lookupRoute(dst);
-    if (!route) {
-      this.drop(packet, 'no-route');
-      return;
-    }
-    this.transmit(route, packet);
-  }
-
   private transmit(route: Route, packet: Ipv4Packet): void {
     const iface = route.iface;
     if (packet.dst === BROADCAST_IP || packet.dst === broadcastOf(iface.subnet)) {
@@ -312,7 +333,18 @@ export class IpNode extends Device {
     iface.nic.send({ src: iface.nic.mac, dst, etherType: 'ipv4', payload: packet });
   }
 
+  /** Hands a packet addressed to this node to the protocol it carries. */
   private deliver(packet: Ipv4Packet): void {
+    if (packet.protocol === 'udp') {
+      if (!this.udp.hasListener(packet.payload.dstPort)) {
+        this.drop(packet, 'port-closed');
+        this.sendError(packet, { type: 'dest-unreachable', code: 'port', original: packet });
+        return;
+      }
+      this.sim.record({ kind: 'ip-deliver', device: this.id, packet });
+      this.udp.receive(packet);
+      return;
+    }
     this.sim.record({ kind: 'ip-deliver', device: this.id, packet });
     this.handleIcmp(packet);
   }
@@ -323,13 +355,17 @@ export class IpNode extends Device {
 
   // --------------------------------------------------------------- ICMP ----
 
-  private handleIcmp(packet: Ipv4Packet): void {
+  private handleIcmp(packet: IcmpPacket): void {
     const message = packet.payload;
     switch (message.type) {
       case 'echo-request':
         // Like most modern stacks, stay silent when pinged at a broadcast address.
         if (this.ownsAddress(packet.dst)) {
-          this.originate(packet.dst, packet.src, { type: 'echo-reply', id: message.id, seq: message.seq });
+          this.sendPacket(
+            packet.src,
+            { protocol: 'icmp', payload: { type: 'echo-reply', id: message.id, seq: message.seq } },
+            { src: packet.dst },
+          );
         }
         return;
       case 'echo-reply':
@@ -347,8 +383,13 @@ export class IpNode extends Device {
       case 'dest-unreachable':
       case 'time-exceeded': {
         const original = message.original;
+        if (!this.ownsAddress(original.src)) return;
+        if (original.protocol === 'udp') {
+          this.udp.fail(original, message.type === 'time-exceeded' ? 'ttl-exceeded' : message.code, packet.src);
+          return;
+        }
         const echo = original.payload;
-        if (echo.type !== 'echo-request' || echo.id !== ECHO_ID || !this.ownsAddress(original.src)) return;
+        if (echo.type !== 'echo-request' || echo.id !== ECHO_ID) return;
         this.finishPing(
           echo.seq,
           message.type === 'time-exceeded'
@@ -368,15 +409,19 @@ export class IpNode extends Device {
     waiter.done(result);
   }
 
-  /** Reports a delivery failure to the packet's sender. Errors about errors are never sent. */
+  /**
+   * Reports a delivery failure to the packet's sender. Errors are never sent
+   * about other ICMP errors or about broadcasts, which would multiply traffic.
+   */
   private sendError(
     about: Ipv4Packet,
     error: Extract<IcmpMessage, { type: 'dest-unreachable' | 'time-exceeded' }>,
   ): void {
-    const type = about.payload.type;
-    if (type === 'dest-unreachable' || type === 'time-exceeded') return;
-    const route = this.lookupRoute(about.src);
-    if (!route) return;
-    this.originate(route.iface.address, about.src, error);
+    if (about.protocol === 'icmp') {
+      const type = about.payload.type;
+      if (type === 'dest-unreachable' || type === 'time-exceeded') return;
+    }
+    if (about.dst === BROADCAST_IP || this.interfaces.some((i) => about.dst === broadcastOf(i.subnet))) return;
+    this.sendPacket(about.src, { protocol: 'icmp', payload: error });
   }
 }

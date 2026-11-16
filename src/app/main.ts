@@ -1,4 +1,4 @@
-import { describeEvent, formatIp, type PingResult, type TraceEvent } from '../engine';
+import { describeEvent, type TraceEvent } from '../engine';
 import { runDemo } from './demo';
 import './style.css';
 
@@ -16,33 +16,20 @@ function formatTime(us: number): string {
   return `${(us / 1000).toFixed(1)} ms`;
 }
 
-function describeResult(result: PingResult): string {
-  switch (result.status) {
-    case 'reply':
-      return `reply from ${formatIp(result.from)} in ${formatTime(result.rttUs)}, ttl ${result.ttl}`;
-    case 'timeout':
-      return 'timed out';
-    case 'unreachable':
-      return `${formatIp(result.from)} says ${result.code} unreachable`;
-    case 'ttl-exceeded':
-      return `${formatIp(result.from)} says time exceeded`;
-  }
-}
-
 function where(event: TraceEvent): string {
   return 'iface' in event ? `${event.device}:${event.iface}` : event.device;
 }
 
-const { sim, pings } = runDemo();
+const { sim, steps } = runDemo();
 const app = document.querySelector<HTMLElement>('#app')!;
 
 const header = el('header');
-header.append(el('h1', '', 'Handshake'), el('p', 'lede', 'Simulation engine demo: two LANs, two routers, four pings.'));
+header.append(el('h1', '', 'Handshake'), el('p', 'lede', 'Simulation engine demo: a laptop finds a web server by name across two routers, then pings it.'));
 
 const results = el('ul', 'results');
-for (const { label, result } of pings) {
+for (const { label, outcome, ok } of steps) {
   const item = el('li');
-  item.append(el('span', 'label', label), el('span', `outcome ${result.status}`, describeResult(result)));
+  item.append(el('span', 'label', label), el('span', ok ? 'outcome ok' : 'outcome other', outcome));
   results.append(item);
 }
 
