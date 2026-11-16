@@ -111,6 +111,18 @@ export class DnsResolver {
     return this.read(`${type} ${normalizeName(name)}`);
   }
 
+  /** Everything currently cached, for display. An empty `records` means "known not to exist". */
+  entries(): { name: string; type: DnsRecordType | 'NXDOMAIN'; records: DnsRecord[] }[] {
+    const out: { name: string; type: DnsRecordType | 'NXDOMAIN'; records: DnsRecord[] }[] = [];
+    for (const key of [...this.cache.keys()]) {
+      const records = this.read(key);
+      if (!records) continue;
+      const space = key.indexOf(' ');
+      out.push({ type: key.slice(0, space) as DnsRecordType | 'NXDOMAIN', name: key.slice(space + 1), records });
+    }
+    return out;
+  }
+
   /** Forgets everything learned so far. */
   flush(): void {
     this.cache.clear();

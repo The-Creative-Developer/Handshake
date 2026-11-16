@@ -668,6 +668,11 @@ export class TcpLayer {
     return [...this.table.values()];
   }
 
+  /** The ports this node accepts connections on. */
+  get listeningPorts(): number[] {
+    return [...this.listeners.keys()];
+  }
+
   /** Accepts connections on `port`. `onConnection` is called once each handshake completes. */
   listen(
     port: number,

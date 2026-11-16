@@ -82,6 +82,11 @@ export class UdpLayer {
     return socket;
   }
 
+  /** The ports currently bound on this node. */
+  get boundPorts(): number[] {
+    return [...this.sockets.keys()];
+  }
+
   hasListener(port: number): boolean {
     return this.sockets.has(port);
   }

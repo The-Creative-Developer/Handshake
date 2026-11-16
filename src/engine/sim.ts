@@ -81,6 +81,12 @@ export class Simulation {
     return true;
   }
 
+  /** When the next event is due, or undefined if nothing is scheduled. */
+  nextEventTime(): number | undefined {
+    this.discardCancelled();
+    return this.heap[0]?.time;
+  }
+
   /** Runs every event due at or before `untilUs`, then moves the clock there. */
   runUntil(untilUs: number): void {
     for (;;) {

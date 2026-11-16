@@ -46,6 +46,16 @@ export class Switch extends Device {
     return entry.port;
   }
 
+  /** The addresses currently learned and the port each is on, for display. */
+  entries(): { mac: Mac; port: string }[] {
+    const out: { mac: Mac; port: string }[] = [];
+    for (const mac of [...this.table.keys()]) {
+      const port = this.portFor(mac);
+      if (port) out.push({ mac, port: port.name });
+    }
+    return out;
+  }
+
   onFrame(ingress: Nic, frame: EthernetFrame): void {
     this.learn(frame.src, ingress);
 

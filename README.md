@@ -1,23 +1,23 @@
 # Handshake
 
-A playable internet in the browser. Build a network from hosts, switches and routers, watch packets move
-through it, then attack and defend it. Everything is simulated: no real traffic ever leaves the page.
+A playable internet in the browser. Watch packets cross a network of hosts, switches and routers, open any of
+them up, and break things to see what happens. Everything is simulated: no real traffic ever leaves the page.
 
-![Engine demo: lookup, ping and TCP results, and the event trace](docs/demo.png)
+![A TCP handshake in progress: the SYN-ACK is on its way back to the laptop, and the same frame is open in the inspector](docs/demo.png)
 
 ## Status
 
-The simulation engine is complete for the first milestone: Ethernet, switching, ARP, IPv4 routing, ICMP,
-UDP, DNS and TCP. The page you get from `npm run dev` is a placeholder that runs a fixed scenario and lists
-the event trace.
+The simulation engine covers Ethernet, switching, ARP, IPv4 routing, ICMP, UDP, DNS and TCP. On top of it
+is an animated map of one built-in network, with an inspector for devices, cables and frames. You cannot yet
+build your own network or scrub back through time.
 
 | Step | What | State |
 | --- | --- | --- |
 | 1 | Simulation engine: Ethernet, switch, ARP, IPv4, ICMP | Done |
 | 1 | Simulation engine: UDP, DNS | Done |
 | 1 | Simulation engine: TCP | Done |
-| 2 | Canvas renderer and packet inspector | Next |
-| 3 | Timeline recording and scrubbing | Not started |
+| 2 | Canvas renderer and packet inspector | Done |
+| 3 | Timeline recording and scrubbing | Next |
 | 4 | Attack and defence modules | Not started |
 | 5 | Multiplayer and AI scenarios | Not started |
 
@@ -38,6 +38,40 @@ npm test
 ```bash
 npm run build
 ```
+
+## The interface
+
+`npm run dev` opens a toy internet: an office with a laptop and a DNS resolver, and a data centre with a web
+server and three name servers, joined by two routers.
+
+- **The map.** Cables are ink lines, devices are simple glyphs (circle for a host, rounded box for a switch,
+  diamond for a router), and each frame is a token coloured by protocol. Tokens keep to the right of their
+  cable so the two directions never cross. A frame delivered to the wrong host fades to an outline; a lost
+  frame ends in a red cross. TCP connections are drawn as arcs over the map, labelled with the state of each
+  end.
+- **The inspector.** Click a device to see its interfaces, routes, ARP cache, TCP connections, and (where it
+  has them) resolver cache or DNS zones, all updating live. Click a cable to cut it, delay it or make it lose
+  frames. Click a token or a log line to open the frame layer by layer.
+- **The wire log.** One line per frame sent, plus drops, cache changes and TCP state changes. "Every step"
+  adds receipts and forwarding decisions.
+- **Playback.** Play, pause (space), step to the next event (right arrow), and four speeds. Stretches where
+  nothing happens are skipped unless you turn that off.
+- **Doing things.** The buttons under the map run a lookup, a ping, a page fetch and a connection to a closed
+  port from the laptop. Any host's inspector has a small console that does the same for a name or address
+  you type.
+
+The interface is plain TypeScript with a canvas for the map and DOM for the panels. It is split so that the
+part that decides what to draw can be tested without a browser:
+
+| File | Contents |
+| --- | --- |
+| `scenario.ts` | The built-in network and the actions a person at a host can take |
+| `model.ts` | Turns the engine's trace into things to draw: frames in flight, connection arcs, brief effects |
+| `player.ts` | Advances the simulation in step with the screen, including pausing, stepping and skipping silence |
+| `scene.ts` | Draws the map on a canvas and handles clicks and drags |
+| `inspector.ts` | The side panel |
+| `log.ts` | The wire log |
+| `protocol.ts`, `theme.ts`, `dom.ts` | Frame labels, colours and fonts, a small DOM helper |
 
 ## The engine
 
