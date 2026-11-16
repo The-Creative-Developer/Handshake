@@ -1,6 +1,7 @@
 import { formatIp, type Ipv4, type Mac } from './addr';
 import type { DnsMessage, DnsRecord, DnsRecordType } from './dns';
 import type { EthernetFrame, Ipv4Packet } from './packets';
+import type { TcpCloseReason, TcpDropReason, TcpState } from './tcp';
 
 export type FrameDropReason = 'no-carrier' | 'link-down' | 'link-loss' | 'mac-filter' | 'same-port';
 export type IpDropReason =
@@ -52,6 +53,29 @@ export type TraceBody =
       readonly change: 'add' | 'update' | 'refresh';
     }
   | {
+      /** A TCP connection moved from one state to another. `reason` says why it closed. */
+      readonly kind: 'tcp-state';
+      readonly device: string;
+      readonly localPort: number;
+      readonly remote: Ipv4;
+      readonly remotePort: number;
+      readonly from: TcpState;
+      readonly to: TcpState;
+      readonly reason?: TcpCloseReason;
+    }
+  | {
+      /** A TCP connection resent something, after a timeout or after repeated acknowledgements. */
+      readonly kind: 'tcp-retransmit';
+      readonly device: string;
+      readonly localPort: number;
+      readonly remote: Ipv4;
+      readonly remotePort: number;
+      readonly seq: number;
+      readonly attempt: number;
+      readonly cause: 'timeout' | 'fast';
+    }
+  | { readonly kind: 'tcp-drop'; readonly device: string; readonly packet: Ipv4Packet; readonly reason: TcpDropReason }
+  | {
       /** A resolver or client refused to believe a response, or one record inside it. */
       readonly kind: 'dns-reject';
       readonly device: string;
@@ -92,6 +116,19 @@ export function describePacket(packet: Ipv4Packet): string {
     const route = `${formatIp(packet.src)}:${srcPort} → ${formatIp(packet.dst)}:${dstPort}`;
     return data.kind === 'dns' ? `${describeDns(data.message)} (${route})` : `UDP ${route} "${data.text}"`;
   }
+  if (packet.protocol === 'tcp') {
+    const segment = packet.payload;
+    const flags = [
+      segment.syn && 'SYN',
+      segment.fin && 'FIN',
+      segment.rst && 'RST',
+      segment.ack && 'ACK',
+    ].filter(Boolean);
+    const route = `${formatIp(packet.src)}:${segment.srcPort} → ${formatIp(packet.dst)}:${segment.dstPort}`;
+    const ack = segment.ack ? ` ack=${segment.ackNo}` : '';
+    const length = segment.data.length > 0 ? ` len=${segment.data.length}` : '';
+    return `TCP [${flags.join(', ')}] ${route} seq=${segment.seq}${ack}${length}`;
+  }
   const route = `${formatIp(packet.src)} → ${formatIp(packet.dst)}`;
   const icmp = packet.payload;
   switch (icmp.type) {
@@ -131,6 +168,17 @@ export function describeEvent(event: TraceBody): string {
     case 'ip-deliver':
       return describePacket(event.packet);
     case 'ip-drop':
+      return `${describePacket(event.packet)} [${event.reason}]`;
+    case 'tcp-state': {
+      const peer = `${formatIp(event.remote)}:${event.remotePort}`;
+      return `port ${event.localPort} ↔ ${peer}: ${event.from} → ${event.to}${event.reason ? ` (${event.reason})` : ''}`;
+    }
+    case 'tcp-retransmit': {
+      const peer = `${formatIp(event.remote)}:${event.remotePort}`;
+      const why = event.cause === 'fast' ? 'three repeated acknowledgements' : `timeout, attempt ${event.attempt}`;
+      return `port ${event.localPort} ↔ ${peer}: resending from seq=${event.seq} (${why})`;
+    }
+    case 'tcp-drop':
       return `${describePacket(event.packet)} [${event.reason}]`;
     case 'dns-cache': {
       const subject = `${event.type} ${event.name || '.'}`;

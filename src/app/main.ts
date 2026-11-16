@@ -24,7 +24,10 @@ const { sim, steps } = runDemo();
 const app = document.querySelector<HTMLElement>('#app')!;
 
 const header = el('header');
-header.append(el('h1', '', 'Handshake'), el('p', 'lede', 'Simulation engine demo: a laptop finds a web server by name across two routers, then pings it.'));
+header.append(
+  el('h1', '', 'Handshake'),
+  el('p', 'lede', 'Simulation engine demo: a laptop finds a web server by name, pings it, then fetches a page over TCP.'),
+);
 
 const results = el('ul', 'results');
 for (const { label, outcome, ok } of steps) {

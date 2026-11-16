@@ -144,12 +144,15 @@ tbody tr:last-child td {
 
 .kind.frame-drop,
 .kind.ip-drop,
+.kind.tcp-drop,
 .kind.dns-reject {
   color: var(--drop);
 }
 
 .kind.mac-learn,
 .kind.arp-cache,
+.kind.tcp-state,
+.kind.tcp-retransmit,
 .kind.dns-cache {
   color: var(--state);
 }

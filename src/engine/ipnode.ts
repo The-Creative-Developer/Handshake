@@ -25,6 +25,7 @@ import type {
 } from './packets';
 import type { Rng } from './rng';
 import { SECOND, type Simulation, type Timer } from './sim';
+import { TcpLayer, type TcpOptions } from './tcp';
 import type { IpDropReason } from './trace';
 import { UdpLayer } from './udp';
 
@@ -65,6 +66,8 @@ export interface IpNodeOptions {
   arpMaxAttempts?: number;
   /** TTL given to packets this node originates. Defaults to 64. */
   defaultTtl?: number;
+  /** Overrides for this node's TCP settings. */
+  tcp?: Partial<TcpOptions>;
 }
 
 interface PendingResolution {
@@ -86,7 +89,7 @@ const ECHO_ID = 1;
 
 /**
  * The IP layer shared by hosts and routers: interface addresses, a routing
- * table, ARP resolution, ICMP, UDP, and (for routers) forwarding.
+ * table, ARP resolution, ICMP, UDP, TCP, and (for routers) forwarding.
  */
 export class IpNode extends Device {
   readonly interfaces: Interface[] = [];
@@ -95,6 +98,7 @@ export class IpNode extends Device {
   /** This node's own random stream, for port numbers and transaction ids. */
   readonly rng: Rng;
   readonly udp: UdpLayer;
+  readonly tcp: TcpLayer;
 
   private readonly arpTtlUs: number;
   private readonly arpRetryUs: number;
@@ -115,6 +119,7 @@ export class IpNode extends Device {
     this.defaultTtl = options.defaultTtl ?? 64;
     this.rng = sim.fork(`node:${id}`);
     this.udp = new UdpLayer(this, this.rng);
+    this.tcp = new TcpLayer(this, this.rng, options.tcp);
   }
 
   /** Gives an interface an address such as "10.0.0.5/24" and adds the route to its subnet. */
@@ -345,6 +350,11 @@ export class IpNode extends Device {
       this.udp.receive(packet);
       return;
     }
+    if (packet.protocol === 'tcp') {
+      this.sim.record({ kind: 'ip-deliver', device: this.id, packet });
+      this.tcp.receive(packet);
+      return;
+    }
     this.sim.record({ kind: 'ip-deliver', device: this.id, packet });
     this.handleIcmp(packet);
   }
@@ -386,6 +396,10 @@ export class IpNode extends Device {
         if (!this.ownsAddress(original.src)) return;
         if (original.protocol === 'udp') {
           this.udp.fail(original, message.type === 'time-exceeded' ? 'ttl-exceeded' : message.code, packet.src);
+          return;
+        }
+        if (original.protocol === 'tcp') {
+          this.tcp.fail(original);
           return;
         }
         const echo = original.payload;

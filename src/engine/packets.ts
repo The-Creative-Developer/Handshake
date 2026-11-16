@@ -34,10 +34,31 @@ export interface UdpDatagram {
   readonly data: UdpData;
 }
 
-/** The transport-specific part of an IP packet. TCP will join this union. */
+/**
+ * A TCP segment. `data` is text, one character per byte. Sequence numbers
+ * count bytes and wrap at 2^32; SYN and FIN each take up one number.
+ */
+export interface TcpSegment {
+  readonly srcPort: number;
+  readonly dstPort: number;
+  /** Sequence number of the first byte of `data` (or of the SYN or FIN itself). */
+  readonly seq: number;
+  /** The next sequence number the sender expects to receive. Only meaningful when `ack` is set. */
+  readonly ackNo: number;
+  readonly syn: boolean;
+  readonly ack: boolean;
+  readonly fin: boolean;
+  readonly rst: boolean;
+  /** How many more bytes the sender is willing to receive. */
+  readonly window: number;
+  readonly data: string;
+}
+
+/** The transport-specific part of an IP packet. */
 export type IpBody =
   | { readonly protocol: 'icmp'; readonly payload: IcmpMessage }
-  | { readonly protocol: 'udp'; readonly payload: UdpDatagram };
+  | { readonly protocol: 'udp'; readonly payload: UdpDatagram }
+  | { readonly protocol: 'tcp'; readonly payload: TcpSegment };
 
 interface Ipv4Header {
   readonly src: Ipv4;
@@ -49,6 +70,7 @@ interface Ipv4Header {
 export type Ipv4Packet = Ipv4Header & IpBody;
 export type IcmpPacket = Extract<Ipv4Packet, { protocol: 'icmp' }>;
 export type UdpPacket = Extract<Ipv4Packet, { protocol: 'udp' }>;
+export type TcpPacket = Extract<Ipv4Packet, { protocol: 'tcp' }>;
 
 export type EthernetFrame =
   | { readonly src: Mac; readonly dst: Mac; readonly etherType: 'arp'; readonly payload: ArpPacket }

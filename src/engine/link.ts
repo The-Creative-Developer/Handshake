@@ -49,6 +49,11 @@ export class Link {
   up = true;
   latencyUs: number;
   lossRate: number;
+  /**
+   * When set, only frames for which this returns true get through. It models a
+   * faulty or tampered cable, and lets a scenario lose one chosen frame.
+   */
+  filter: ((frame: EthernetFrame, from: Nic) => boolean) | null = null;
 
   constructor(
     private readonly sim: Simulation,
@@ -67,6 +72,10 @@ export class Link {
 
     // The generator is only consulted on lossy links, so adding a clean link
     // elsewhere never shifts the random sequence the lossy ones see.
+    if (this.filter && !this.filter(frame, from)) {
+      dropAt('link-loss');
+      return;
+    }
     if (this.lossRate > 0 && this.sim.rng.next() < this.lossRate) {
       dropAt('link-loss');
       return;

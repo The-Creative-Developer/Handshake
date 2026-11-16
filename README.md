@@ -3,19 +3,20 @@
 A playable internet in the browser. Build a network from hosts, switches and routers, watch packets move
 through it, then attack and defend it. Everything is simulated: no real traffic ever leaves the page.
 
-![Engine demo: lookup and ping results, and the event trace](docs/demo.png)
+![Engine demo: lookup, ping and TCP results, and the event trace](docs/demo.png)
 
 ## Status
 
-The simulation engine handles Ethernet, switching, ARP, IPv4 routing, ICMP, UDP and DNS. The page you get
-from `npm run dev` is a placeholder that runs a fixed scenario and lists the event trace.
+The simulation engine is complete for the first milestone: Ethernet, switching, ARP, IPv4 routing, ICMP,
+UDP, DNS and TCP. The page you get from `npm run dev` is a placeholder that runs a fixed scenario and lists
+the event trace.
 
 | Step | What | State |
 | --- | --- | --- |
 | 1 | Simulation engine: Ethernet, switch, ARP, IPv4, ICMP | Done |
 | 1 | Simulation engine: UDP, DNS | Done |
-| 1 | Simulation engine: TCP | Next |
-| 2 | Canvas renderer and packet inspector | Not started |
+| 1 | Simulation engine: TCP | Done |
+| 2 | Canvas renderer and packet inspector | Next |
 | 3 | Timeline recording and scrubbing | Not started |
 | 4 | Attack and defence modules | Not started |
 | 5 | Multiplayer and AI scenarios | Not started |
@@ -90,6 +91,42 @@ trace as a `dns-reject` event.
 Not modelled: record types other than A, NS and CNAME, SOA-driven negative caching (a fixed 60 seconds is
 used), truncation and TCP fallback, and DNSSEC.
 
+### TCP
+
+```ts
+server.tcp.listen(80, (connection) => {
+  connection.onData = (request) => {
+    connection.send('HTTP/1.0 200 OK\r\n\r\nhello');
+    connection.end();
+  };
+});
+
+const connection = laptop.tcp.connect('10.0.2.10', 80);
+connection.onOpen = () => connection.send('GET / HTTP/1.0\r\n\r\n');
+connection.onData = (data) => console.log(data);
+connection.onClose = (reason) => console.log(reason); // 'closed', 'reset', 'refused', 'timeout', ...
+```
+
+What is modelled:
+
+- The full connection state machine, from the three-way handshake through to both ways of closing, including
+  one side finishing while the other keeps sending and both sides closing at once.
+- Reliable, ordered delivery: segmentation, cumulative acknowledgements, reassembly of out-of-order segments,
+  retransmission on timeout with exponential backoff, and fast retransmit after three repeated
+  acknowledgements. The timeout adapts to measured round-trip times (RFC 6298).
+- Congestion control: slow start, congestion avoidance, and the window cuts that follow a loss.
+- Resets: a closed port answers with one, `abort()` sends one, and an incoming reset is honoured only if its
+  sequence number falls inside the receive window.
+- A limit on half-open connections per listening port. When it is full, further SYNs are dropped, which is
+  the condition a SYN flood creates.
+- Random initial sequence numbers and source ports.
+
+Every state change, retransmission and rejected segment is recorded in the trace.
+
+Not modelled: TCP options (window scaling, selective acknowledgement, timestamps, MSS negotiation), delayed
+acknowledgements, Nagle's algorithm, zero-window probing, keep-alive, simultaneous open, urgent data and SYN
+cookies. Payloads are text, one character per byte.
+
 ### Design rules
 
 - **Deterministic.** Time is a counter of simulated microseconds, events at the same instant run in the order
@@ -108,12 +145,13 @@ used), truncation and TCP fallback, and DNSSEC.
 | --- | --- |
 | `sim.ts` | Event queue, clock, trace, cabling |
 | `addr.ts` | MAC, IPv4 and CIDR helpers |
-| `packets.ts` | Ethernet, ARP, IPv4, ICMP and UDP shapes |
+| `packets.ts` | Ethernet, ARP, IPv4, ICMP, UDP and TCP shapes |
 | `link.ts` | Interfaces and cables, with latency, loss and link failure |
 | `switch.ts` | Learning switch with address aging |
 | `arp.ts` | Per-interface ARP cache |
 | `ipnode.ts` | The IP layer shared by hosts and routers: routing table, ARP resolution, ICMP, forwarding |
 | `udp.ts` | UDP sockets: bound and ephemeral ports, delivery, errors reported back by the network |
+| `tcp.ts` | TCP listeners and connections |
 | `dns.ts` | DNS messages, records and name helpers |
 | `dns-server.ts` | Authoritative server: answers, referrals, aliases |
 | `dns-resolver.ts` | Caching recursive resolver |

@@ -84,7 +84,15 @@ export function runDemo(): DemoRun {
 
   const laptop = office('laptop', '10.0.1.10', ['10.0.1.53']);
   new DnsResolver(office('resolver', '10.0.1.53'), { rootServers: ['10.0.2.2'] });
-  dataCentre('www', '10.0.2.10');
+  const www = dataCentre('www', '10.0.2.10');
+  // A one-line web server: read the request, answer it, hang up.
+  www.tcp.listen(80, (connection) => {
+    connection.onData = (request) => {
+      const found = request.startsWith('GET / ');
+      connection.send(found ? 'HTTP/1.0 200 OK\r\n\r\nHello from www.example.com' : 'HTTP/1.0 404 Not Found\r\n\r\n');
+      connection.end();
+    };
+  });
   new DnsServer(dataCentre('root', '10.0.2.2'), [
     {
       origin: '',
@@ -125,12 +133,31 @@ export function runDemo(): DemoRun {
     sim.runUntilIdle();
   };
 
+  const get = (label: string, address: string, port = 80) => {
+    const start = sim.now;
+    const connection = laptop.tcp.connect(address, port);
+    let response = '';
+    connection.onOpen = () => {
+      connection.send('GET / HTTP/1.0\r\n\r\n');
+      connection.end();
+    };
+    connection.onData = (data) => (response += data);
+    connection.onClose = (reason) => {
+      const body = response.split('\r\n\r\n')[1] ?? '';
+      const ok = reason === 'closed' && response.startsWith('HTTP/1.0 200');
+      steps.push({ label, outcome: ok ? `"${body}" in ${ms(sim.now - start)}` : `connection ${reason}`, ok });
+    };
+    sim.runUntilIdle();
+  };
+
   lookup('lookup www.example.com', 'www.example.com');
   ping('ping 10.0.2.10', '10.0.2.10');
   lookup('lookup www.example.com (cached)', 'www.example.com');
   lookup('lookup nope.example.com', 'nope.example.com');
   ping('ping 10.0.2.10 with TTL 1', '10.0.2.10', 1);
   ping('ping 172.16.0.1 (no route)', '172.16.0.1');
+  get('GET http://10.0.2.10/ over TCP', '10.0.2.10');
+  get('GET http://10.0.2.10:8080/ (closed port)', '10.0.2.10', 8080);
 
   return { sim, steps };
 }

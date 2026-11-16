@@ -13,6 +13,8 @@ import {
   type Ipv4,
   type PingOptions,
   type PingResult,
+  type TcpOptions,
+  type TcpSegment,
   type TraceEvent,
 } from '../../src/engine';
 
@@ -44,10 +46,10 @@ export function lan(seed = 1) {
  *   a (10.0.1.10) ── sw1 ── r1 ══ r2 ── b (10.0.2.10)
  *        10.0.1.0/24      10.0.12.0/30      10.0.2.0/24
  */
-export function internetwork(options: { seed?: number; lossRate?: number } = {}) {
+export function internetwork(options: { seed?: number; lossRate?: number; tcp?: Partial<TcpOptions> } = {}) {
   const sim = new Simulation({ seed: options.seed ?? 1 });
-  const a = new Host(sim, 'a', { address: '10.0.1.10/24', gateway: '10.0.1.1' });
-  const b = new Host(sim, 'b', { address: '10.0.2.10/24', gateway: '10.0.2.1' });
+  const a = new Host(sim, 'a', { address: '10.0.1.10/24', gateway: '10.0.1.1', tcp: options.tcp });
+  const b = new Host(sim, 'b', { address: '10.0.2.10/24', gateway: '10.0.2.1', tcp: options.tcp });
   const sw = new Switch(sim, 'sw1');
   const r1 = new Router(sim, 'r1');
   const r2 = new Router(sim, 'r2');
@@ -164,6 +166,17 @@ export function queriesFrom(sim: Simulation, device: string, since = 0): Ipv4[] 
     const packet = event.frame.payload;
     if (packet.protocol !== 'udp' || packet.payload.data.kind !== 'dns') continue;
     if (!packet.payload.data.message.response) out.push(packet.dst);
+  }
+  return out;
+}
+
+/** The TCP segments a device put on the wire, in order, from trace position `since` onwards. */
+export function segmentsFrom(sim: Simulation, device: string, since = 0): (TcpSegment & { t: number })[] {
+  const out: (TcpSegment & { t: number })[] = [];
+  for (const event of sim.trace.slice(since)) {
+    if (event.kind !== 'frame-tx' || event.device !== device || event.frame.etherType !== 'ipv4') continue;
+    const packet = event.frame.payload;
+    if (packet.protocol === 'tcp') out.push({ ...packet.payload, t: event.t });
   }
   return out;
 }

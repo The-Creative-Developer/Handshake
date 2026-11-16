@@ -13,5 +13,6 @@ export * from './rng';
 export * from './router';
 export * from './sim';
 export * from './switch';
+export * from './tcp';
 export * from './trace';
 export * from './udp';
