@@ -117,16 +117,16 @@ export class Model {
 
   constructor(private readonly sim: Simulation) {}
 
-  ingest(event: TraceEvent, nowMs: number): void {
+  /** Takes in one trace event. For a frame being sent, returns the flight it started. */
+  ingest(event: TraceEvent, nowMs: number): Flight | undefined {
     switch (event.kind) {
       case 'frame-tx':
-        this.launch(event);
-        return;
+        return this.launch(event);
       case 'frame-rx':
         this.pulses.push({ device: event.device, tone: 'rx', atMs: nowMs });
         return;
       case 'frame-drop':
-        this.settle(event, nowMs);
+        this.dropped(event, nowMs);
         return;
       case 'ip-drop':
       case 'tcp-drop':
@@ -152,6 +152,20 @@ export class Model {
     }
   }
 
+  /**
+   * Drops everything that is over by `clockUs`: frames that have landed,
+   * finished connections, and all passing effects. Used after jumping to a
+   * moment, so that what is drawn is that moment and not the journey to it.
+   */
+  settle(clockUs: number): void {
+    this.flights = this.flights.filter((flight) => endOf(flight) > clockUs);
+    this.pulses = [];
+    this.captions = [];
+    for (const [key, arc] of this.arcs) {
+      if (arc.closedAtMs !== null) this.arcs.delete(key);
+    }
+  }
+
   /** True while any frame is still travelling. */
   busy(): boolean {
     return this.flights.some((flight) => flight.endedAtMs === null);
@@ -170,13 +184,13 @@ export class Model {
     }
   }
 
-  private launch(event: Extract<TraceEvent, { kind: 'frame-tx' }>): void {
+  private launch(event: Extract<TraceEvent, { kind: 'frame-tx' }>): Flight | undefined {
     const nic = this.sim.devices.get(event.device)?.nics.find((n) => n.name === event.iface);
     const link = nic?.link;
-    if (!nic || !link) return;
+    if (!nic || !link) return undefined;
     const far = link.a === nic ? link.b : link.a;
     const slot = this.flights.filter((f) => f.link === link && f.from === event.device && f.t0 === event.t).length;
-    this.flights.push({
+    const flight: Flight = {
       id: event.seq,
       frame: event.frame,
       tag: tagOf(event.frame),
@@ -188,11 +202,13 @@ export class Model {
       slot,
       fate: 'arrive',
       endedAtMs: null,
-    });
+    };
+    this.flights.push(flight);
+    return flight;
   }
 
   /** Works out which flight a dropped frame was, and marks how it ended. */
-  private settle(event: Extract<TraceEvent, { kind: 'frame-drop' }>, nowMs: number): void {
+  private dropped(event: Extract<TraceEvent, { kind: 'frame-drop' }>, nowMs: number): void {
     const mark = (fate: Fate, match: (flight: Flight) => boolean) => {
       for (let i = this.flights.length - 1; i >= 0; i--) {
         const flight = this.flights[i]!;

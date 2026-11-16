@@ -21,7 +21,7 @@ import {
 } from '../engine';
 import { append, clear, h } from './dom';
 import { FAMILY_NAME, tagOf } from './protocol';
-import { fetchPage, lookup, ping, type Note, type Scenario } from './scenario';
+import type { Input, Scenario } from './scenario';
 import type { Selection } from './scene';
 import type { Family } from './theme';
 
@@ -77,11 +77,16 @@ export class Inspector {
 
   constructor(
     private readonly root: HTMLElement,
-    private readonly scenario: Scenario,
-    private readonly note: Note,
-    private readonly afterAction: () => void,
+    private scenario: Scenario,
+    /** Everything this panel does to the network goes through here, so that it is recorded. */
+    private readonly perform: (input: Input) => void,
   ) {
     this.show(null);
+  }
+
+  /** Points the panel at a rebuilt network. Call `show` afterwards to redraw. */
+  rebind(scenario: Scenario): void {
+    this.scenario = scenario;
   }
 
   show(selection: Selection): void {
@@ -173,10 +178,9 @@ export class Inspector {
   /** A small form for sending something from a host. */
   private console(host: Host): HTMLElement {
     const input = h('input', { type: 'text', value: 'www.example.com', spellcheck: 'false', 'aria-label': 'Name or address' });
-    const run = (action: (host: Host, target: string, note: Note) => void) => () => {
-      if (input.value.trim() === '') return;
-      action(host, input.value, this.note);
-      this.afterAction();
+    const run = (kind: 'lookup' | 'ping' | 'fetch') => () => {
+      const target = input.value.trim();
+      if (target !== '') this.perform({ kind, host: host.id, target });
     };
     return section(
       'Send from here',
@@ -187,9 +191,9 @@ export class Inspector {
         h(
           'div',
           { class: 'buttons' },
-          h('button', { type: 'button', onclick: run(lookup) }, 'Look up'),
-          h('button', { type: 'button', onclick: run(ping) }, 'Ping'),
-          h('button', { type: 'button', onclick: run((hst, target, note) => fetchPage(hst, target, note)) }, 'Fetch'),
+          h('button', { type: 'button', onclick: run('lookup') }, 'Look up'),
+          h('button', { type: 'button', onclick: run('ping') }, 'Ping'),
+          h('button', { type: 'button', onclick: run('fetch') }, 'Fetch'),
         ),
       ),
     );
@@ -308,28 +312,26 @@ export class Inspector {
   // ----------------------------------------------------------------- cable ----
 
   private link(link: Link): void {
+    const index = this.scenario.sim.links.indexOf(link);
     const toggle = h('button', { type: 'button', class: 'wide' });
     const relabel = () => (toggle.textContent = link.up ? 'Cut this cable' : 'Repair this cable');
     relabel();
     toggle.addEventListener('click', () => {
-      link.up = !link.up;
+      this.perform({ kind: 'link', index, up: !link.up });
       relabel();
       this.refresh();
     });
 
+    // The label follows the slider as it moves; the change is made once, when it is let go.
     const lossValue = h('output', null, `${Math.round(link.lossRate * 100)}%`);
     const loss = h('input', { type: 'range', min: '0', max: '60', step: '5', value: String(Math.round(link.lossRate * 100)) });
-    loss.addEventListener('input', () => {
-      link.lossRate = Number(loss.value) / 100;
-      lossValue.textContent = `${loss.value}%`;
-    });
+    loss.addEventListener('input', () => (lossValue.textContent = `${loss.value}%`));
+    loss.addEventListener('change', () => this.perform({ kind: 'link', index, lossRate: Number(loss.value) / 100 }));
 
     const delayValue = h('output', null, `${link.latencyUs / 1000} ms`);
     const delay = h('input', { type: 'range', min: '1', max: '10', step: '1', value: String(link.latencyUs / 1000) });
-    delay.addEventListener('input', () => {
-      link.latencyUs = Number(delay.value) * 1000;
-      delayValue.textContent = `${delay.value} ms`;
-    });
+    delay.addEventListener('input', () => (delayValue.textContent = `${delay.value} ms`));
+    delay.addEventListener('change', () => this.perform({ kind: 'link', index, latencyUs: Number(delay.value) * 1000 }));
 
     this.live = h('div', { class: 'live' }, this.linkState(link));
     append(this.root, [

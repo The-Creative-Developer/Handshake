@@ -39,6 +39,8 @@ export class WireLog {
   private readonly entries: Entry[] = [];
   private verbose = false;
   private selected: HTMLElement | null = null;
+  /** While set, new entries are stored but not drawn. */
+  private loading = false;
 
   constructor(
     private readonly list: HTMLElement,
@@ -50,13 +52,25 @@ export class WireLog {
   add(event: TraceEvent): void {
     const entry: Entry = { kind: 'event', event };
     this.entries.push(entry);
-    if (this.shows(entry)) this.appendRow(entry);
+    if (!this.loading && this.shows(entry)) this.appendRow(entry);
   }
 
   note(t: number, device: string, text: string): void {
     const entry: Entry = { kind: 'note', t, device, text };
     this.entries.push(entry);
-    this.appendRow(entry);
+    if (!this.loading) this.appendRow(entry);
+  }
+
+  /** Empties the log and holds off drawing, ready for a stretch of history to be loaded in one go. */
+  beginLoad(): void {
+    this.entries.length = 0;
+    this.loading = true;
+  }
+
+  /** Draws what was loaded. */
+  endLoad(): void {
+    this.loading = false;
+    this.setVerbose(this.verbose);
   }
 
   setVerbose(verbose: boolean): void {

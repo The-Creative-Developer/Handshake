@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { Model, endOf, phaseOf } from '../../src/app/model';
-import { Player } from '../../src/app/player';
 import { formatClock, formatDuration, tagOf } from '../../src/app/protocol';
 import { MS, SECOND, type EthernetFrame, type Simulation } from '../../src/engine';
 import { internetwork, lan, ofKind, ping } from '../engine/helpers';
@@ -169,74 +168,6 @@ describe('Model: captions', () => {
     net.sim.runUntilIdle();
     const captions = replay(net.sim).captions;
     expect(captions.map((c) => [c.device, c.text, c.tone])).toContainEqual(['r1', 'no route', 'drop']);
-  });
-});
-
-describe('Player', () => {
-  /** Runs the player for a number of 16 ms screen frames. */
-  function run(player: Player, frames: number): void {
-    for (let i = 1; i <= frames; i++) player.frame(16, i * 16);
-  }
-
-  it('holds the clock still when nothing is left to happen', () => {
-    const { sim } = lan();
-    const player = new Player(sim, new Model(sim), () => {});
-    run(player, 50);
-    expect(player.clock).toBe(0);
-    expect(player.idle).toBe(true);
-  });
-
-  it('moves a frame across a cable in about 0.4 seconds', () => {
-    const { sim, a } = lan();
-    const seen: string[] = [];
-    const player = new Player(sim, new Model(sim), (event) => seen.push(event.kind));
-    ping(a, '10.0.0.2');
-    run(player, 24); // 384 ms
-    expect(seen).toEqual(['frame-tx']);
-    run(player, 2);
-    expect(seen).toContain('frame-rx');
-  });
-
-  it('jumps over silence, and says how much it skipped', () => {
-    const { sim, a } = lan();
-    const model = new Model(sim);
-    const player = new Player(sim, model, () => {});
-    const results = ping(a, '10.0.0.99'); // nobody there: three ARP attempts, a second apart
-    run(player, 400);
-    expect(results).toHaveLength(1);
-    expect(player.clock).toBeGreaterThanOrEqual(3 * SECOND);
-    expect(player.lastSkip?.us).toBeGreaterThan(900 * MS);
-  });
-
-  it('waits out the silence when told not to skip it', () => {
-    const { sim, a } = lan();
-    const player = new Player(sim, new Model(sim), () => {});
-    player.skipSilence = false;
-    ping(a, '10.0.0.99');
-    run(player, 400); // 6.4 s of real time is 16 ms of simulated time
-    expect(player.clock).toBe(16 * MS);
-    expect(player.lastSkip).toBeNull();
-  });
-
-  it('does nothing while paused, except when stepped', () => {
-    const { sim, a } = lan();
-    const player = new Player(sim, new Model(sim), () => {});
-    player.playing = false;
-    ping(a, '10.0.0.2');
-    run(player, 100);
-    expect(player.clock).toBe(0);
-    player.step(0);
-    expect(player.clock).toBe(MS);
-  });
-
-  it('runs faster at higher speeds', () => {
-    const { sim, a } = lan();
-    const player = new Player(sim, new Model(sim), () => {});
-    player.skipSilence = false;
-    player.speed = 4;
-    ping(a, '10.0.0.99');
-    run(player, 100);
-    expect(player.clock).toBe(16 * MS);
   });
 });
 

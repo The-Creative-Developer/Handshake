@@ -3,13 +3,13 @@
 A playable internet in the browser. Watch packets cross a network of hosts, switches and routers, open any of
 them up, and break things to see what happens. Everything is simulated: no real traffic ever leaves the page.
 
-![A TCP handshake in progress: the SYN-ACK is on its way back to the laptop, and the same frame is open in the inspector](docs/demo.png)
+![Scrubbed back to the middle of a TCP handshake: the SYN-ACK is on its way to the laptop, the same frame is open in the inspector, and the rest of the recording is faded on the timeline](docs/demo.png)
 
 ## Status
 
 The simulation engine covers Ethernet, switching, ARP, IPv4 routing, ICMP, UDP, DNS and TCP. On top of it
-is an animated map of one built-in network, with an inspector for devices, cables and frames. You cannot yet
-build your own network or scrub back through time.
+is an animated map of one built-in network, with an inspector for devices, cables and frames and a timeline
+you can drag to go back to any earlier moment. You cannot yet build your own network.
 
 | Step | What | State |
 | --- | --- | --- |
@@ -17,8 +17,8 @@ build your own network or scrub back through time.
 | 1 | Simulation engine: UDP, DNS | Done |
 | 1 | Simulation engine: TCP | Done |
 | 2 | Canvas renderer and packet inspector | Done |
-| 3 | Timeline recording and scrubbing | Next |
-| 4 | Attack and defence modules | Not started |
+| 3 | Timeline recording and scrubbing | Done |
+| 4 | Attack and defence modules | Next |
 | 5 | Multiplayer and AI scenarios | Not started |
 
 ## Commands
@@ -54,8 +54,14 @@ server and three name servers, joined by two routers.
   frames. Click a token or a log line to open the frame layer by layer.
 - **The wire log.** One line per frame sent, plus drops, cache changes and TCP state changes. "Every step"
   adds receipts and forwarding decisions.
-- **Playback.** Play, pause (space), step to the next event (right arrow), and four speeds. Stretches where
-  nothing happens are skipped unless you turn that off.
+- **The timeline.** Everything that has happened is laid out left to right like a score: one lane per
+  protocol and a bar for each frame, with rings where you did something, flags where an application reported
+  back, and red crosses where something was lost. Silences are squeezed to a fixed width and labelled with
+  how long they lasted. Drag anywhere on it to go to that moment: the map, the log and every table in the
+  inspector show the network exactly as it was. Press play to watch it happen again, or do something
+  different, which discards the old future and starts a new one.
+- **Playback.** Play, pause (space), step forwards or backwards one event at a time (arrow keys), jump to
+  the latest moment, and four speeds. Stretches where nothing happens are skipped unless you turn that off.
 - **Doing things.** The buttons under the map run a lookup, a ping, a page fetch and a connection to a closed
   port from the laptop. Any host's inspector has a small console that does the same for a name or address
   you type.
@@ -67,11 +73,23 @@ part that decides what to draw can be tested without a browser:
 | --- | --- |
 | `scenario.ts` | The built-in network and the actions a person at a host can take |
 | `model.ts` | Turns the engine's trace into things to draw: frames in flight, connection arcs, brief effects |
-| `player.ts` | Advances the simulation in step with the screen, including pausing, stepping and skipping silence |
+| `session.ts` | Runs the simulation in step with the screen, records everything, and goes back in time |
+| `axis.ts` | Maps simulated time to a position on the timeline, squeezing silences |
+| `timeline.ts` | Draws the timeline strip and handles scrubbing |
 | `scene.ts` | Draws the map on a canvas and handles clicks and drags |
 | `inspector.ts` | The side panel |
 | `log.ts` | The wire log |
 | `protocol.ts`, `theme.ts`, `dom.ts` | Frame labels, colours and fonts, a small DOM helper |
+
+### How going back works
+
+Nothing is ever undone. The engine is deterministic, so the session records only what you did and when
+(each click on an action, each change to a cable). To show an earlier moment it builds the network again
+from scratch, applies those inputs at the same simulated times, and runs to the moment asked for. A test
+checks that the rebuilt network's trace matches the original recording exactly, event for event.
+
+This costs one re-run of history per jump backwards. For the built-in scenario that is a few milliseconds;
+a very long session would need periodic checkpoints, which are not implemented.
 
 ## The engine
 

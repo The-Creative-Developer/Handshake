@@ -53,9 +53,11 @@ export class Scene {
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
-    private readonly scenario: Scenario,
-    private readonly model: Model,
+    private scenario: Scenario,
+    private model: Model,
     private readonly onSelect: (selection: Selection) => void,
+    /** Whether two frame objects are the same frame. They can differ after history is re-run. */
+    private readonly sameFrame: (a: EthernetFrame, b: EthernetFrame) => boolean,
   ) {
     this.ctx = canvas.getContext('2d')!;
     const places = Object.values(scenario.places);
@@ -70,6 +72,14 @@ export class Scene {
     canvas.addEventListener('pointermove', (e) => this.pointerMove(e), { signal });
     canvas.addEventListener('pointerup', (e) => this.pointerUp(e), { signal });
     canvas.addEventListener('pointerleave', () => (this.hover = null), { signal });
+  }
+
+  /** Points the scene at a rebuilt network. The layout and what is selected carry over. */
+  attach(scenario: Scenario, model: Model): void {
+    this.scenario = scenario;
+    this.model = model;
+    this.hover = null;
+    this.drag = null;
   }
 
   /** Stops listening to the canvas. Call before replacing this scene with another. */
@@ -219,7 +229,7 @@ export class Scene {
 
     ctx.font = `600 10px ${FONT_MONO}`;
     const width = ctx.measureText(flight.tag.label).width + 14;
-    const selected = this.selection?.kind === 'frame' && this.selection.frame === flight.frame;
+    const selected = this.selection?.kind === 'frame' && this.sameFrame(this.selection.frame, flight.frame);
 
     if (alpha > 0) {
       ctx.globalAlpha = clamp(alpha, 0, 1);

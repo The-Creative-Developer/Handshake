@@ -46,6 +46,63 @@ export interface Scenario {
   readonly actions: { readonly label: string; run(note: Note): void }[];
 }
 
+/**
+ * Something a person did to the network. Inputs are plain data, so a session
+ * can record them and apply them again to a rebuilt network to get back to
+ * any earlier moment.
+ */
+export type Input =
+  | { readonly kind: 'action'; readonly index: number }
+  | { readonly kind: 'lookup' | 'ping' | 'fetch'; readonly host: string; readonly target: string }
+  | {
+      /** A change to a cable, identified by its position in the simulation's list. */
+      readonly kind: 'link';
+      readonly index: number;
+      readonly up?: boolean;
+      readonly lossRate?: number;
+      readonly latencyUs?: number;
+    };
+
+export function applyInput(scenario: Scenario, input: Input, note: Note): void {
+  switch (input.kind) {
+    case 'action':
+      scenario.actions[input.index]?.run(note);
+      return;
+    case 'link': {
+      const link = scenario.sim.links[input.index];
+      if (!link) return;
+      if (input.up !== undefined) link.up = input.up;
+      if (input.lossRate !== undefined) link.lossRate = input.lossRate;
+      if (input.latencyUs !== undefined) link.latencyUs = input.latencyUs;
+      return;
+    }
+    default: {
+      const host = scenario.sim.devices.get(input.host);
+      if (!(host instanceof Host)) return;
+      if (input.kind === 'lookup') lookup(host, input.target, note);
+      else if (input.kind === 'ping') ping(host, input.target, note);
+      else fetchPage(host, input.target, note);
+    }
+  }
+}
+
+/** A short description of an input, for the timeline. */
+export function describeInput(scenario: Scenario, input: Input): string {
+  switch (input.kind) {
+    case 'action':
+      return scenario.actions[input.index]?.label ?? 'action';
+    case 'link': {
+      const link = scenario.sim.links[input.index];
+      const name = link ? `${link.a.owner.id}–${link.b.owner.id}` : 'cable';
+      if (input.up !== undefined) return `${input.up ? 'repaired' : 'cut'} ${name}`;
+      if (input.lossRate !== undefined) return `${name}: ${Math.round(input.lossRate * 100)}% loss`;
+      return `${name}: ${(input.latencyUs ?? 0) / 1000} ms delay`;
+    }
+    default:
+      return `${input.host}: ${input.kind === 'lookup' ? 'look up' : input.kind} ${input.target}`;
+  }
+}
+
 // ----------------------------------------------------------------- actions ----
 // What a person at a host can do. Each reports its outcome through `note`.
 

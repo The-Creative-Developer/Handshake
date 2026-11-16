@@ -54,7 +54,7 @@ body::after {
 #app {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 400px;
-  grid-template-rows: 62px minmax(0, 1fr) 236px;
+  grid-template-rows: 62px minmax(0, 1fr) 98px 204px;
   height: 100vh;
 }
 
@@ -67,9 +67,14 @@ body::after {
 
 .bar,
 .map,
+.strip,
 .log,
 .inspector {
   animation: rise 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.strip {
+  animation-delay: 0.2s;
 }
 
 .map {
@@ -119,6 +124,14 @@ select.transport:hover {
 }
 
 button:active {
+  transform: none;
+  box-shadow: none;
+}
+
+button:disabled {
+  border-color: var(--rule);
+  color: var(--rule);
+  cursor: default;
   transform: none;
   box-shadow: none;
 }
@@ -266,6 +279,24 @@ input[type='range'] {
   text-transform: none;
 }
 
+/* ---------------------------------------------------------------- strip -- */
+
+.strip {
+  grid-column: 1;
+  grid-row: 3;
+  min-height: 0;
+  border-top: var(--line);
+  background: var(--panel);
+}
+
+.strip canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
 /* ---------------------------------------------------------------- tokens -- */
 
 .token {
@@ -305,7 +336,7 @@ input[type='range'] {
 
 .log {
   grid-column: 1;
-  grid-row: 3;
+  grid-row: 4;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -431,7 +462,7 @@ input[type='range'] {
 
 .inspector {
   grid-column: 2;
-  grid-row: 2 / 4;
+  grid-row: 2 / 5;
   min-height: 0;
   padding: 24px 24px 48px;
   overflow-y: auto;
@@ -724,7 +755,7 @@ button.wide {
 
   #app {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto 56vh 220px auto;
+    grid-template-rows: auto 56vh 98px 220px auto;
     height: auto;
   }
 
@@ -736,7 +767,7 @@ button.wide {
 
   .inspector {
     grid-column: 1;
-    grid-row: 4;
+    grid-row: 5;
     border-left: 0;
     border-top: var(--line);
   }
@@ -745,6 +776,7 @@ button.wide {
 @media (prefers-reduced-motion: reduce) {
   .bar,
   .map,
+  .strip,
   .log,
   .inspector {
     animation: none;
